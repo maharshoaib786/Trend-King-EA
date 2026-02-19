@@ -1,9 +1,0 @@
-# Sensitive Info
-API.txt
-
-# MQL Logs
-compile_log.txt
-compile_log_ascii.txt
-
-# Executables
-*.ex5
