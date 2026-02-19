@@ -1,0 +1,15 @@
+
+
+d:\WorkSpace\Trend_King_Repo\Trend_King_EA.mq5 : information: compiling d:\WorkSpace\Trend_King_Repo\Trend_King_EA.mq5
+d:\WorkSpace\Trend_King_Repo\Trend_King_EA.mq5 : information: including C:\Users\SHOAIB\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075\MQL5\Include\Trade\Trade.mqh
+C:\Users\SHOAIB\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075\MQL5\Include\Trade\Trade.mqh : information: including C:\Users\SHOAIB\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075\MQL5\Include\Object.mqh
+C:\Users\SHOAIB\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075\MQL5\Include\Object.mqh : information: including C:\Users\SHOAIB\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075\MQL5\Include\StdLibErr.mqh
+C:\Users\SHOAIB\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075\MQL5\Include\Trade\Trade.mqh : information: including C:\Users\SHOAIB\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075\MQL5\Include\Trade\OrderInfo.mqh
+C:\Users\SHOAIB\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075\MQL5\Include\Trade\Trade.mqh : information: including C:\Users\SHOAIB\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075\MQL5\Include\Trade\HistoryOrderInfo.mqh
+C:\Users\SHOAIB\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075\MQL5\Include\Trade\Trade.mqh : information: including C:\Users\SHOAIB\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075\MQL5\Include\Trade\PositionInfo.mqh
+C:\Users\SHOAIB\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075\MQL5\Include\Trade\Trade.mqh : information: including C:\Users\SHOAIB\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075\MQL5\Include\Trade\DealInfo.mqh
+d:\WorkSpace\Trend_King_Repo\Trend_King_EA.mq5(318,57) : error 256: undeclared identifier
+d:\WorkSpace\Trend_King_Repo\Trend_King_EA.mq5(318,57) : error 262: cannot convert enum
+d:\WorkSpace\Trend_King_Repo\Trend_King_EA.mq5 : information: info    built-in: string MQLInfoString(ENUM_MQL_INFO_STRING)
+d:\WorkSpace\Trend_King_Repo\Trend_King_EA.mq5(318,43) : warning 181: implicit conversion from 'number' to 'string'
+Result: 2 errors, 1 warnings

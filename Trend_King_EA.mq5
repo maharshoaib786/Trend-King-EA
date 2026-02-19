@@ -1,43 +1,45 @@
-#property copyright ""
-#property link      ""
-#property version   "2.00"
-#property description "Trend King EA"
+#property copyright "MAHAR SHOAIB"
+#property link      "https://t.me/trendkingea"
+#property version   "2.01"
+#property description "👑 Trend King EA 👑"
+#property icon        "ICON\\favicon.ico"
 #property strict
 
 #include <Trade/Trade.mqh>
+
+const double EA_VERSION_VAL = 2.01;
 
 //==============================
 // Inputs
 //==============================
 input int      InpFastEMAPeriod        = 9;        // EMA 1 (fast): Updated for M5 quick trend
-input int      InpMidEMAPeriod         = 21;       // EMA 2: Updated for M5 quick trend
-input int      InpAtrPeriod            = 14;       // ATR period (dashboard display)
+input int      InpMidEMAPeriod         = 25;       // EMA 2: Updated for M5 quick trend
 input double   InpLotSize              = 0.01;     // Fixed lot size
+input double   InpGridGapPrice         = 1.0;      // Grid gap in price units (XAUUSD: 1.0 ~= 100 points on 2 digits)
+input int      InpAdvancePendingLimit   = 10;      // Number of pending orders to keep in advance
+input int      InpHardPendingStopsCap  = 10;       // Max pending orders per direction (Hard Cap)
+input double   InpTpVolatile           = 30.0;     // TP when VOLATILE (price units)
+input double   InpTpNormal             = 30.0;      // TP when ACTIVE/SIDEWAYS (price units)
+input bool     InpBypassSpreadOnManualStart = true; // START GRID ignores spread filter if true
+input bool     InpEnableAdvancePendingOrders = true; // Maintain pending ladder in active direction
+input double   InpTrailStepPips        = 10000;    // Step trail: profit step in pips (0 = disabled)
+//--- Other Config
+const int      InpAtrPeriod            = 14;       // ATR Period (Hidden)
 input ulong    InpMagicNumber          = 20260207; // Magic number
 input int      InpMaxSlippagePoints    = 20;       // Max slippage (points)
 input int      InpMaxSpreadPoints      = 250;       // Max spread (points)
-input bool     InpBypassSpreadOnManualStart = false; // START GRID ignores spread filter if true
-input bool     InpEnableAdvancePendingOrders = true; // Maintain pending ladder in active direction
-input int      InpAdvancePendingLimit   = 10;      // Number of pending orders to keep in advance
-input int      InpHardPendingStopsCap   = 10;      // Hard cap for pending stop orders (0 = use InpAdvancePendingLimit)
 input bool     InpOnlyPendingEntries    = true;    // If true, EA opens entries only via stop pending orders
 input int      InpPendingRetryCooldownSec = 30;    // Cooldown after pending-order limit error
 input int      InpMaxPendingPlacePerTick = 2;      // Max new pending orders to place per tick
-input double   InpGridGapPrice         = 1.0;      // Grid gap in price units (XAUUSD: 1.0 ~= 100 points on 2 digits)
-input double   InpTpVolatile           = 20.0;     // TP when VOLATILE (price units)
-input double   InpTpNormal             = 3.0;      // TP when ACTIVE/SIDEWAYS (price units)
-input bool     InpTpHitReplaceInLimit  = true;     // Replace TP-hit positions with limit orders in non-volatile markets
-input bool     InpUseHmaHardExit       = true;     // HMA Hard Exit: Close all on candle close against HMA
-input int      InpHmaExitConfirmationBars = 2;     // Candles needed to confirm HMA exit
-input bool     InpResumeOnHmaRecovery  = true;     // Resume trading if price closes back on trend side
-input int      InpHmaExitPeriod        = 34;       // HMA Period for hard exit
 input bool     InpDirectionalLock      = true;     // Lock to latest active grid direction
 input bool     InpReverseOnOppositeCrossover = true; // Close current grid and reverse on opposite crossover
 input bool     InpShowSignalTextOnChart = true;    // Print BUY/SELL text on crossover candle
 //--- Signal Inputs
-input string         InpAuthUrl = "https://raw.githubusercontent.com/YourUser/Trend-King-EA/main/accounts.txt"; // Auth URL (Raw Text)
 sinput string        InpSepSignals    = "--- SIGNAL SETTINGS ---"; // [Signal Config]
 input int      InpSignalTextOffsetPoints = 120;    // Vertical offset for BUY/SELL text (points)
+
+// Hidden Auth Configuration
+const string AUTH_URL = "https://raw.githubusercontent.com/maharshoaib786/Trend-King-EA/refs/heads/main/accounts.txt";
 input bool     InpRunM1Only            = true;     // EA allowed only on M1/M5 timeframes
 input bool     InpResetDirectionOnFlat = true;     // Reset direction when all EA positions are closed
 input int      InpMaxGridOrders        = 30;       // Safety cap for open grid orders
@@ -48,12 +50,8 @@ input bool     InpForceObjectsInFront  = true;     // Force objects to stay in f
 input int      InpDashboardX           = 12;       // Dashboard X offset
 input int      InpDashboardY           = 22;       // Dashboard Y offset
 input int      InpDashboardHeight      = 0;        // Dashboard height (0 = auto max to chart bottom)
-input double   InpTrailStepPips        = 7000;       // Step trail: profit step in pips (0 = disabled)
-input int      InpEmaResetCooldownBars = 5;        // Bars to skip after EMA touch reset (0 = no cooldown)
 
-// Hidden internal constants/flags (not shown in Inputs menu).
-int    InpTpRefillLimitMax = 5;
-int    InpTpRefillDelaySec = 3;
+// V3 Config
 bool   InpReopenClosedPositions = false;
 double InpReopenWaitDistancePrice = 10.0;
 int    InpReopenWaitDistancePoints = 1000;
@@ -62,6 +60,7 @@ int    InpReopenWaitDistancePoints = 1000;
 double InpEmaSepAtrThreshold  = 0.5;    // EMA sep / ATR must exceed this for trending (M5 optimized)
 double InpAtrVolatileRatio    = 1.05;   // ATR / avg_ATR must exceed this for volatile (M5 optimized)
 int    InpAtrAvgPeriod        = 100;    // Bars to average ATR over (~8h on M5)
+input string   InpUpdateUrl           = "https://raw.githubusercontent.com/maharshoaib786/Trend-King-EA/main/version.json";
 
 //==============================
 // Globals
@@ -81,19 +80,14 @@ datetime g_nextPendingRetryTime = 0;
 bool     g_pendingLimitHitThisTick = false;
 double   g_pendingAnchorPrice = 0.0;
 int      g_pendingAnchorDirection = 0;
-string   g_tpRefillLimitCommentPrefix = "TP Refill Limit";
-int      g_tpRefillQueueCount = 0;
-int      g_tpRefillQueueDirection[];
-double   g_tpRefillQueuePrice[];
-datetime g_tpRefillQueueDueTime[];
-long     g_tpRefillQueuePositionId[];
 datetime g_emaTouchLastCheckedBarTime = 0;
 int      g_emaTouchCooldownBarsLeft = 0;
 bool     g_forcePendingAnchorActive = false;
 int      g_forcePendingAnchorDirection = 0;
 
 double   g_forcePendingAnchorPrice = 0.0;
-bool     g_hmaPaused = false;
+bool     g_v3Paused = false;
+
 
 enum GridDirection
 {
@@ -113,18 +107,15 @@ bool GetDirectionalBasePendingPrice(const int direction, double &basePrice);
 void ResetPendingAnchor();
 void ResetPendingRetryState();
 bool RemoveOneTrailingPendingOrder(const int direction, double &removedPrice);
-bool IsTpRefillLimitOrderType(const long orderType, const int direction = DIR_NONE);
-bool IsTpRefillLimitOrder(const long orderType, const string comment, const int direction = DIR_NONE);
-int CountTpRefillLimitOrders(const int direction = DIR_NONE);
-bool HasTpRefillLimitNearPrice(const int direction, const double price, const double tol);
-bool DeleteOldestTpRefillLimit(const int direction);
-bool PlaceTpRefillLimitOrder(const int direction, const double requestedPrice, const string reason);
-bool IsPositionIdentifierStillOpen(const long positionId, const int direction);
-void AddTpRefillQueue(const int direction, const double closePrice, const long positionId);
-void RemoveTpRefillQueueAt(const int index);
-void ClearTpRefillQueue();
-void ProcessTpRefillQueue();
-void ProcessTpEmaResetWait();
+
+// Signal & Regime Prototypes
+int  GetCurrentSignalDirection();
+bool GetCrossoverSignal(int &signal);
+string DetermineMarketRegime();
+double GetActiveTP();
+void UpdateDashboard();
+void CalcHMA();
+
 
 string DirectionToText(const int direction)
 {
@@ -155,7 +146,7 @@ void DeleteDashboardObjects()
       "L_ACT", "V_ACT", "L_SIG", "V_SIG",
       "CARD_GRID", "H_POS", "V_POS", "H_PND", "V_PND", "H_QUE", "V_QUE", "INF_BOT",
       "L_ACT_ST", "V_ACT_ST",
-      "BTN_START", "BTN_STOP", "BTN_CLOSE"
+      "BTN_START", "BTN_STOP", "BTN_CLOSE", "BTN_START_NOW", "BTN_UPDATE"
    };
 
    int n = ArraySize(keys);
@@ -189,9 +180,9 @@ bool UpsertDashboardRect(const string name, const int x, const int y, const int 
    return true;
 }
 
-bool UpsertDashboardText(const string name, const int x, const int y, const string text, 
-                        const color textColor, const int fontSize = 9, const string font = "Segoe UI", 
-                        const int anchor = ANCHOR_LEFT_UPPER, const int zOrder = 1001)
+bool UpsertDashTxt(string name, int x, int y, string txt, 
+                  color textColor, int fontSize = 9, string font = "Segoe UI", 
+                  ENUM_ANCHOR_POINT anchor = ANCHOR_LEFT_UPPER, int zOrder = 1001)
 {
    if(ObjectFind(0, name) < 0)
    {
@@ -203,7 +194,7 @@ bool UpsertDashboardText(const string name, const int x, const int y, const stri
    }
    ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
    ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
-   ObjectSetString(0, name, OBJPROP_TEXT, text);
+   ObjectSetString(0, name, OBJPROP_TEXT, txt);
    ObjectSetString(0, name, OBJPROP_FONT, font);
    ObjectSetInteger(0, name, OBJPROP_FONTSIZE, fontSize);
    ObjectSetInteger(0, name, OBJPROP_COLOR, textColor);
@@ -259,6 +250,123 @@ void DeleteEmaVisualObjects()
    DeleteExtraEmaSegments(3, 1); // Cleanup old EMA-3 objects from previous versions
 }
 
+//==============================
+// OTA Update System (v3.0)
+//==============================
+struct ST_VersionInfo
+{
+   string version;
+   string url;
+   string updated;
+};
+
+// Simple JSON Parser for version.json (Approximate)
+bool ParseVersionJson(const string json, ST_VersionInfo &info)
+{
+   // Find "version": "X.XX"
+   int vStart = StringFind(json, "\"version\"");
+   if(vStart < 0) return false;
+   int vValStart = StringFind(json, ":", vStart) + 1;
+   int vValEnd = StringFind(json, ",", vValStart);
+   string rawVer = StringSubstr(json, vValStart, vValEnd - vValStart);
+   StringReplace(rawVer, "\"", "");
+   StringReplace(rawVer, " ", "");
+   StringReplace(rawVer, "\r", "");
+   StringReplace(rawVer, "\n", "");
+   info.version = rawVer;
+   
+   // Find "url": "..."
+   int uStart = StringFind(json, "\"url\"");
+   if(uStart < 0) return false;
+   int uValStart = StringFind(json, ":", uStart) + 1;
+   int uValEnd = StringFind(json, "}", uValStart); // End of json object
+   if(uValEnd < 0) uValEnd = StringLen(json);
+   string rawUrl = StringSubstr(json, uValStart, uValEnd - uValStart);
+   StringReplace(rawUrl, "\"", "");
+   StringReplace(rawUrl, " ", "");
+   StringReplace(rawUrl, "\r", "");
+   StringReplace(rawUrl, "\n", "");
+   info.url = rawUrl;
+   
+   return true;
+}
+
+void CheckForUpdate()
+{
+   string cookie=NULL, headers;
+   char post[], result[];
+   string url = InpUpdateUrl; 
+   
+   // Allow WebRequest must be enabled in Options
+   ResetLastError();
+   int timeout = 5000;
+   int res = WebRequest("GET", url, cookie, NULL, timeout, post, 0, result, headers);
+   
+   if(res == -1)
+   {
+      int err = GetLastError();
+      if(err == 4060) Print("Update Check Failed: WebRequest not enabled for ", url);
+      else Print("Update Check Failed: Error ", err);
+      return;
+   }
+   
+   if(res == 200)
+   {
+      string json = CharArrayToString(result);
+      ST_VersionInfo info;
+      if(ParseVersionJson(json, info))
+      {
+         double localVer = EA_VERSION_VAL;
+         double remoteVer = StringToDouble(info.version);
+         
+         if(remoteVer > localVer)
+         {
+            Print("UPDATE AVAILABLE: v", info.version, " detected! Current: v", localVer);
+            UpsertDashboardButton(DashboardObjectName("BTN_UPDATE"), InpDashboardX + 220, InpDashboardY + 5, 100, 20, 
+                                 "UPDATE v" + info.version, C'0,200,0', C'255,255,255');
+            ObjectSetString(0, DashboardObjectName("BTN_UPDATE"), OBJPROP_TOOLTIP, "Click to Download Update");
+            ChartRedraw();
+         }
+         else
+         {
+            Print("Update Check: You have the latest version (v", localVer, ")");
+         }
+      }
+   }
+}
+
+void DownloadUpdate(const string version)
+{
+   string cookie=NULL, headers;
+   char post[], result[];
+   string url = "https://raw.githubusercontent.com/maharshoaib786/Trend-King-EA/main/Trend_King_EA.ex5";
+   
+   int res = WebRequest("GET", url, cookie, NULL, 10000, post, 0, result, headers);
+   
+   if(res == 200)
+   {
+      string filename = "Trend_King_v" + version + ".ex5";
+      int fileHandle = FileOpen(filename, FILE_WRITE|FILE_BIN|FILE_COMMON); // Save to Common/Files for visibility
+      if(fileHandle != INVALID_HANDLE)
+      {
+         FileWriteArray(fileHandle, result);
+         FileClose(fileHandle);
+         Print("SUCCESS: Update downloaded to Common/Files/", filename);
+         MessageBox("Update v" + version + " Downloaded!\n\nLocation: Common/Files/" + filename + "\n\nPlease restart MT5 or install manually.", "Update Successful", MB_OK);
+         ObjectSetInteger(0, DashboardObjectName("BTN_UPDATE"), OBJPROP_STATE, false);
+         ObjectSetString(0, DashboardObjectName("BTN_UPDATE"), OBJPROP_TEXT, "RESTART MT5");
+      }
+      else
+      {
+         Print("Error saving update file: ", GetLastError());
+      }
+   }
+   else
+   {
+      Print("Download Failed: Error ", GetLastError());
+   }
+}
+
 bool UpsertEmaSegment(const int emaIndex,
                       const int segmentIndex,
                       const datetime t1,
@@ -298,17 +406,26 @@ bool UpsertEmaSegment(const int emaIndex,
 //==============================
 // Market Regime Helper
 //==============================
+string g_marketRegime = "UNKNOWN"; // Global variable to store market regime
+
+void CalcHMA()
+{
+   // This function is just a placeholder to indicate HMA calculation happens.
+   // The actual GetHMA is called within DetermineMarketRegime.
+   // No need to do anything here, just to satisfy the instruction's call.
+}
+
 string DetermineMarketRegime()
 {
    double emaFast[], emaMid[], atrBuf[];
    
    // Get current EMA values
-   if(CopyBuffer(g_emaFastHandle, 0, 0, 1, emaFast) <= 0) return "UNKNOWN";
-   if(CopyBuffer(g_emaMidHandle, 0, 0, 1, emaMid) <= 0) return "UNKNOWN";
+   if(CopyBuffer(g_emaFastHandle, 0, 0, 1, emaFast) <= 0) { g_marketRegime = "UNKNOWN"; return g_marketRegime; }
+   if(CopyBuffer(g_emaMidHandle, 0, 0, 1, emaMid) <= 0) { g_marketRegime = "UNKNOWN"; return g_marketRegime; }
    
    // Get ATR history for volatility avg
    int atrLookback = MathMax(20, InpAtrAvgPeriod);
-   if(CopyBuffer(g_atrHandle, 0, 0, atrLookback, atrBuf) <= 0) return "UNKNOWN";
+   if(CopyBuffer(g_atrHandle, 0, 0, atrLookback, atrBuf) <= 0) { g_marketRegime = "UNKNOWN"; return g_marketRegime; }
    
    double currentAtr = atrBuf[atrLookback-1]; // Newest is at end
    double sumAtr = 0;
@@ -330,7 +447,7 @@ string DetermineMarketRegime()
          Print("DetermineMarketRegime: HMA calc failed. Fast=", hmaFast, " Slow=", hmaSlow, " FastPrev=", hmaFastPrev);
          lastErr = TimeCurrent();
       }
-      return "UNKNOWN";
+      g_marketRegime = "UNKNOWN"; return g_marketRegime;
    }
       
    double hmaSep = MathAbs(hmaFast - hmaSlow);
@@ -343,14 +460,17 @@ string DetermineMarketRegime()
    // HMA is very responsive.
    // 1. Sideways: If Fast HMA is barely moving or hugged tight to Slow HMA.
    if(slopeRatio < 0.05 || sepRatio < 0.1)
-      return "SIDEWAYS";
+      g_marketRegime = "SIDEWAYS";
       
    // 2. Volatile: If HMA separation is HUGE (2x ATR).
-   if(sepRatio > 2.0)
-      return "VOLATILE";
+   else if(sepRatio > 2.0)
+      g_marketRegime = "VOLATILE";
       
    // 3. Active: Default state for HMA (Fast Trend)
-   return "ACTIVE";
+   else
+      g_marketRegime = "ACTIVE";
+
+   return g_marketRegime;
 }
 
 double GetActiveTP()
@@ -439,76 +559,198 @@ double GetHMA(int period, int shift)
    return result; 
 }
 
-void CheckHmaExit()
+//==============================
+// V3 Logic: Trend Swing (Option B)
+//==============================
+void CheckV3Logic()
 {
-   if(!InpUseHmaHardExit || g_activeDirection == DIR_NONE) return;
-   
+   if(g_activeDirection == DIR_NONE) return;
+
    // Check only on new bar
    datetime currentTime = iTime(_Symbol, _Period, 0);
    static datetime lastChecked = 0;
    if(currentTime == lastChecked) return;
    lastChecked = currentTime;
 
-   // 1. Resume Logic
-   if(g_hmaPaused)
+   // EMA 21 (Mid/Slow) - Used for Hard Exit
+   double emaSlow[];
+   if(CopyBuffer(g_emaMidHandle, 0, 0, 2, emaSlow) < 2) return;
+   double slowVal = emaSlow[1]; 
+   
+   // EMA 9 (Fast) - Used for Breakeven/Pause & Resume
+   double emaFast[];
+   if(CopyBuffer(g_emaFastHandle, 0, 0, 2, emaFast) < 2) return;
+   double fastVal = emaFast[1];
+   
+   double closePrice = iClose(_Symbol, _Period, 1);
+   
+   // 1. HARD EXIT Logic (EMA 21 - Slow)
+   // Condition: Candle Close against EMA 21
+   bool hardExit = false;
+   if(g_activeDirection == DIR_BUY && closePrice < slowVal) hardExit = true;
+   else if(g_activeDirection == DIR_SELL && closePrice > slowVal) hardExit = true;
+   
+   if(hardExit)
    {
-      double hmaVal = GetHMA(InpHmaExitPeriod, 1);
-      double closePrice = iClose(_Symbol, _Period, 1);
-      
-      bool backOnTrack = false;
-      if(g_activeDirection == DIR_BUY && closePrice > hmaVal && InpResumeOnHmaRecovery)
-         backOnTrack = true;
-      else if(g_activeDirection == DIR_SELL && closePrice < hmaVal && InpResumeOnHmaRecovery)
-         backOnTrack = true;
-         
-      if(backOnTrack)
+      CloseAllFromDashboard();
+      g_v3Paused = true;
+      g_gridEnabled = false; // Stop adding new orders
+      g_lastActionStatus = "Action: V3 Hard Exit (EMA21 Break)";
+      Print("V3 HARD EXIT: Trend Broken (EMA21). Closing All.");
+      UpdateDashboard();
+      return;
+   }
+
+   // 2. RESUME Logic (If Paused)
+   // Condition: Price closes back above EMA9 (Trend Continuation)
+   if(g_v3Paused)
+   {
+      bool resume = false;
+      if(g_activeDirection == DIR_BUY)
       {
-         g_hmaPaused = false;
-         g_lastActionStatus = "Action: HMA Recovery (Resuming HMA Pause)";
-         Print("HMA RESUME: Close ", closePrice, " recovered vs HMA ", hmaVal);
+         if(closePrice > fastVal) resume = true;
+      }
+      else if(g_activeDirection == DIR_SELL)
+      {
+         if(closePrice < fastVal) resume = true;
+      }
+      
+      if(resume)
+      {
+         g_v3Paused = false;
+         g_gridEnabled = true;
+         // Resume pending ladder
+         ManageAdvancePendingOrders();
+         g_lastActionStatus = "Action: V3 Resume (Trend Cont.)";
+         Print("V3 RESUME: Price recovered above EMA9. Resuming grid.");
          UpdateDashboard();
       }
-      return; // Regardless of resume, we don't check exit condition in same tick? (Or we could, but let's wait)
+      return; 
    }
    
-   // 2. Exit Logic (Confirmation Check)
-   int confirmBars = InpHmaExitConfirmationBars;
-   if(confirmBars < 1) confirmBars = 1;
-
-   bool exitTrigger = true;
-   double hmaVal1 = GetHMA(InpHmaExitPeriod, 1); // Log first bar for display
-   double close1 = iClose(_Symbol, _Period, 1);
+   // 3. BREAKEVEN Logic (EMA 9 - Fast)
+   // Condition: Candle Close against EMA 9
+   bool weakMomentum = false;
+   if(g_activeDirection == DIR_BUY && closePrice < fastVal) weakMomentum = true;
+   else if(g_activeDirection == DIR_SELL && closePrice > fastVal) weakMomentum = true;
    
-   for(int i=1; i<=confirmBars; i++)
+   if(weakMomentum)
    {
-       double hVal = GetHMA(InpHmaExitPeriod, i);
-       double cVal = iClose(_Symbol, _Period, i);
-       
-       if(hVal == 0.0) { exitTrigger = false; break; }
-       
-       if(g_activeDirection == DIR_BUY)
-       {
-          if(cVal >= hVal) { exitTrigger = false; break; } // Failed condition
-       }
-       else if(g_activeDirection == DIR_SELL)
-       {
-          if(cVal <= hVal) { exitTrigger = false; break; } // Failed condition
-       }
-   }
+      // Move SL to Entry for all profitable positions
+      int modified = 0;
+      for(int i = PositionsTotal() - 1; i >= 0; i--)
+      {
+         ulong ticket = PositionGetTicket(i);
+         if(ticket > 0 && IsOurPosition())
+         {
+            double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+            double sl = PositionGetDouble(POSITION_SL);
+            double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+            double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+            
+            bool setBE = false;
+            double newSL = openPrice; 
+            
+            if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY)
+            {
+               // Only move if price is above entry (profitable) and SL is not already at/above entry
+               if(bid > openPrice + _Point && (sl < openPrice - _Point || sl == 0))
+               {
+                  setBE = true;
+               }
+            }
+            else
+            {
+               // Only move if price is below entry (profitable) and SL is not already at/below entry
+               if(ask < openPrice - _Point && (sl > openPrice + _Point || sl == 0))
+               {
+                  setBE = true;
+               }
+            }
+            
+            if(setBE)
+            {
+               if(trade.PositionModify(ticket, newSL, PositionGetDouble(POSITION_TP)))
+                  modified++;
+            }
+         }
+      }
       
-   if(exitTrigger)
+      if(modified > 0)
+      {
+         g_v3Paused = true; // Pause adding NEW orders, but keep existing ones running at BE
+         g_lastActionStatus = StringFormat("Action: V3 Breakeven (%d pos)", modified);
+         Print("V3 BREAKEVEN: Momentum lost (EMA9). Moved SL to Entry.");
+         UpdateDashboard();
+      }
+      else
+      {
+         // Even if no positions were modified (e.g. all underwater), 
+         // we should PAUSE if momentum is lost.
+         if(!g_v3Paused)
+         {
+             g_v3Paused = true;
+             g_lastActionStatus = "Action: V3 Pause (EMA9 Break)";
+             Print("V3 PAUSE: Momentum lost (EMA9). Pausing grid.");
+             UpdateDashboard();
+         }
+      }
+   }
+}
+
+void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam)
+{
+   if(id == CHARTEVENT_CLICK)
    {
-      Print("HMA EXIT TRIGGER: ", confirmBars, " candles closed against HMA. Last Close: ", close1, " vs HMA ", hmaVal1);
-      CloseAllFromDashboard(); 
-      g_hmaPaused = true;
-      g_lastActionStatus = "Action: HMA Hard Exit (Paused)";
-      UpdateDashboard();
+      if(sparam == DashboardObjectName("BTN_START"))
+      {
+         ObjectSetInteger(0, DashboardObjectName("BTN_START"), OBJPROP_STATE, false); // Reset button visual
+         StartGridWaitForSignal();
+         UpdateDashboard();
+         return;
+      }
+      if(sparam == DashboardObjectName("BTN_START_NOW"))
+      {
+         ObjectSetInteger(0, DashboardObjectName("BTN_START_NOW"), OBJPROP_STATE, false); // Reset button visual
+         StartGridNowFromDashboard();
+         UpdateDashboard();
+         return;
+      }
+      if(sparam == DashboardObjectName("BTN_STOP"))
+      {
+         ObjectSetInteger(0, DashboardObjectName("BTN_STOP"), OBJPROP_STATE, false); // Reset button visual
+         StopGridFromDashboard();
+         UpdateDashboard();
+         return;
+      }
+      if(sparam == DashboardObjectName("BTN_CLOSE"))
+      {
+         ObjectSetInteger(0, DashboardObjectName("BTN_CLOSE"), OBJPROP_STATE, false); // Reset button visual
+         CloseAllFromDashboard();
+         g_gridEnabled = false;
+         g_v3Paused = false;
+         g_lastActionStatus = "Action: CLOSED ALL & STOPPED";
+         Print("CLOSE button clicked. All positions closed. Grid stopped.");
+         UpdateDashboard();
+         return;
+      }
+      
+      if(sparam == DashboardObjectName("BTN_UPDATE"))
+      {
+          ObjectSetInteger(0, DashboardObjectName("BTN_UPDATE"), OBJPROP_STATE, false);
+          string text = ObjectGetString(0, DashboardObjectName("BTN_UPDATE"), OBJPROP_TEXT);
+          // Extract version "UPDATE v3.01"
+          string ver = StringSubstr(text, 8); 
+          DownloadUpdate(ver);
+          return;
+      }
    }
 }
 
 void StartGridWaitForSignal()
 {
    g_gridEnabled = true;
+   g_v3Paused = false; // Reset V3 Pause
    g_lastActionStatus = "Action: Pending start (waiting for signal)";
    g_activeDirection = DIR_NONE; // Ensure clean state
    
@@ -521,6 +763,7 @@ void StartGridWaitForSignal()
 void StartGridNowFromDashboard()
 {
    g_gridEnabled = true;
+   g_v3Paused = false; // Reset V3 Pause
    
    // Determine Immediate Trend from current EMA values
    double fast[], slow[];
@@ -709,66 +952,6 @@ void ClearReopenRequests()
    ArrayResize(g_reopenRequestClosePrice, 0);
 }
 
-void ClearTpRefillQueue()
-{
-   g_tpRefillQueueCount = 0;
-   ArrayResize(g_tpRefillQueueDirection, 0);
-   ArrayResize(g_tpRefillQueuePrice, 0);
-   ArrayResize(g_tpRefillQueueDueTime, 0);
-   ArrayResize(g_tpRefillQueuePositionId, 0);
-}
-
-void AddTpRefillQueue(const int direction, const double closePrice, const long positionId)
-{
-   if(direction != DIR_BUY && direction != DIR_SELL)
-      return;
-   if(closePrice <= 0.0)
-      return;
-
-   double tick = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
-   if(tick <= 0.0)
-      tick = _Point;
-   double tol = tick * 0.5;
-
-   for(int i = 0; i < g_tpRefillQueueCount; ++i)
-   {
-      if(g_tpRefillQueueDirection[i] != direction)
-         continue;
-      if(MathAbs(g_tpRefillQueuePrice[i] - closePrice) <= tol)
-         return; // avoid duplicate queued refill at same level
-   }
-
-   int n = g_tpRefillQueueCount;
-   ArrayResize(g_tpRefillQueueDirection, n + 1);
-   ArrayResize(g_tpRefillQueuePrice, n + 1);
-   ArrayResize(g_tpRefillQueueDueTime, n + 1);
-   ArrayResize(g_tpRefillQueuePositionId, n + 1);
-   g_tpRefillQueueDirection[n] = direction;
-   g_tpRefillQueuePrice[n] = closePrice;
-   g_tpRefillQueueDueTime[n] = TimeCurrent() + (int)MathMax(0, InpTpRefillDelaySec);
-   g_tpRefillQueuePositionId[n] = positionId;
-   g_tpRefillQueueCount = n + 1;
-}
-
-void RemoveTpRefillQueueAt(const int index)
-{
-   if(index < 0 || index >= g_tpRefillQueueCount)
-      return;
-
-   for(int i = index; i < g_tpRefillQueueCount - 1; ++i)
-   {
-      g_tpRefillQueueDirection[i] = g_tpRefillQueueDirection[i + 1];
-      g_tpRefillQueuePrice[i] = g_tpRefillQueuePrice[i + 1];
-      g_tpRefillQueueDueTime[i] = g_tpRefillQueueDueTime[i + 1];
-      g_tpRefillQueuePositionId[i] = g_tpRefillQueuePositionId[i + 1];
-   }
-
-   g_tpRefillQueueCount--;
-   ArrayResize(g_tpRefillQueueDirection, g_tpRefillQueueCount);
-   ArrayResize(g_tpRefillQueuePrice, g_tpRefillQueueCount);
-   ArrayResize(g_tpRefillQueueDueTime, g_tpRefillQueueCount);
-   ArrayResize(g_tpRefillQueuePositionId, g_tpRefillQueueCount);
-}
 
 void ResetPendingAnchor()
 {
@@ -888,8 +1071,8 @@ void ReverseGridToSignal(const int signalDirection)
    bool closed = CloseAllOurPositions();
    CancelAllOurPendingOrders();
    ClearReopenRequests();
-   ClearTpRefillQueue();
    g_emaTouchLastCheckedBarTime = 0;
+   g_v3Paused = false; // Reset V3 Pause
    ResetPendingAnchor();
    ResetPendingRetryState();
    g_activeDirection = signalDirection;
@@ -958,7 +1141,6 @@ void StopGridFromDashboard()
 {
    g_gridEnabled = false;
    ClearReopenRequests();
-   ClearTpRefillQueue();
    g_emaTouchLastCheckedBarTime = 0;
    CancelAllOurPendingOrders();
    ResetPendingAnchor();
@@ -974,7 +1156,6 @@ void CloseAllFromDashboard()
    bool closed = CloseAllOurPositions();
    CancelAllOurPendingOrders();
    ClearReopenRequests();
-   ClearTpRefillQueue();
    g_emaTouchLastCheckedBarTime = 0;
    ResetPendingAnchor();
    ResetPendingRetryState();
@@ -1053,63 +1234,10 @@ void ProcessPendingReopen()
    }
 }
 
-void ProcessTpRefillQueue()
-{
-   if(!InpTpHitReplaceInLimit || InpTpRefillLimitMax < 1)
-   {
-      ClearTpRefillQueue();
-      return;
-   }
-
-   if(!g_gridEnabled)
-      return;
-
-   if(g_tpRefillQueueCount <= 0)
-      return;
-
-   datetime now = TimeCurrent();
-   for(int i = g_tpRefillQueueCount - 1; i >= 0; --i)
-   {
-      int dir = g_tpRefillQueueDirection[i];
-      double px = g_tpRefillQueuePrice[i];
-      datetime due = g_tpRefillQueueDueTime[i];
-      long posId = g_tpRefillQueuePositionId[i];
-
-      if(dir != DIR_BUY && dir != DIR_SELL)
-      {
-         RemoveTpRefillQueueAt(i);
-         continue;
-      }
-
-      if(g_activeDirection != DIR_NONE && dir != g_activeDirection)
-      {
-         // stale queue item from previous trend
-         RemoveTpRefillQueueAt(i);
-         continue;
-      }
-
-      if(IsPositionIdentifierStillOpen(posId, dir))
-      {
-         // Ensure full TP close before placing refill limit.
-         RemoveTpRefillQueueAt(i);
-         continue;
-      }
-
-      if(now < due)
-         continue;
-
-      if(PlaceTpRefillLimitOrder(dir, px, "from TP close"))
-      {
-         g_lastActionStatus = StringFormat("Action: TP refill limit placed (%s)", DirectionToText(dir));
-      }
-
-      RemoveTpRefillQueueAt(i);
-   }
-}
 
 void ProcessTpEmaResetWait()
 {
-   return; // Disabled in v1.21+
+   return; // Disabled in V3
 }
 
 
@@ -1149,7 +1277,7 @@ void UpdateDashboard()
    int pendingAll = CountOurPendingOrders();
    int pendingBuy = CountOurPendingOrders(DIR_BUY);
    int pendingSell= CountOurPendingOrders(DIR_SELL);
-   int queueSize  = g_tpRefillQueueCount;
+   int queueSize  = 0; // Refill queue removed in V3
    
    // P/L Calculation
    double floatingPL = 0.0;
@@ -1177,184 +1305,146 @@ void UpdateDashboard()
    // --- Layout Configuration ---
    int x = InpDashboardX;
    int y = InpDashboardY;
-   int w = 460;     // Increased Width to 460
-   int pad = 10;    // Padding
-
-   // Calculate dynamic height
-   int h = 400; 
+   int w = 520;     // Increased Width to 520 (Option C)
+   int pad = 12;    // Padding increased to 12
+   int h = 460;     // Increased Height to 460 (Option C)
 
    // Background Panel
    UpsertDashboardRect(DashboardObjectName("PANEL_BG"), x, y, w, h, CLR_BG_MAIN, C'40,45,60');
    
    // HEADER Section
-   UpsertDashboardRect(DashboardObjectName("HEADER_BG"), x, y, w, 32, CLR_HEADER_ACC, CLR_HEADER_ACC);
-   UpsertDashboardText(DashboardObjectName("TITLE"), x + pad, y + 6, "EMA CROSSOVER GRID", C'255,255,255', 11, "Segoe UI Black");
+   UpsertDashboardRect(DashboardObjectName("HEADER_BG"), x, y, w, 38, CLR_HEADER_ACC, CLR_HEADER_ACC);
+   UpsertDashTxt(DashboardObjectName("TITLE"), x + pad, y + 8, "👑 TREND KING EA 👑", C'255,255,255', 13, "Segoe UI Black");
    string statusTxt = g_gridEnabled ? "RUNNING" : "STOPPED";
    color statusClr  = g_gridEnabled ? C'255,255,255' : C'255,200,200';
-   // Use ANCHOR_RIGHT_UPPER to prevent text from overflowing to the right
-   UpsertDashboardText(DashboardObjectName("STATUS"), x + w - pad, y + 8, statusTxt, statusClr, 9, "Segoe UI Bold", ANCHOR_RIGHT_UPPER);
+   UpsertDashTxt(DashboardObjectName("STATUS"), x + w - pad, y + 10, statusTxt, statusClr, 10, "Segoe UI Bold", ANCHOR_RIGHT_UPPER);
 
-   //==============================
-// Authorization Logic
-//==============================
-bool CheckAuthorization()
-{
-   if(InpAuthUrl == "")
-   {
-      Print("Auth: URL is empty. Skipping check (Development Mode).");
-      return true;
-   }
-
-   string cookie=NULL, headers;
-   char post[], result[];
-   int res;
-   
-   // Reset last error
-   ResetLastError();
-   
-   // Perform GET request
-   res = WebRequest("GET", InpAuthUrl, cookie, NULL, 5000, post, 0, result, headers);
-   
-   if(res == -1)
-   {
-      int err = GetLastError();
-      string msg = "Auth: WebRequest failed. Error=" + IntegerToString(err);
-      if(err == 4060) msg += " (Add URL to Allowed WebRequest in Tools>Options)";
-      Alert(msg);
-      Print(msg);
-      // Fail safely? Or block? User requested "Only Run on Allowed Accounts". So BLOCK.
-      return false; 
-   }
-   
-   if(res != 200)
-   {
-      Alert("Auth: Server returned " + IntegerToString(res));
-      return false;
-   }
-   
-   // Parse response
-   string content = CharArrayToString(result);
-   long myLogin = AccountInfoInteger(ACCOUNT_LOGIN);
-   string myLoginStr = IntegerToString(myLogin);
-   
-   // Simple check: Is my login in the content? 
-   // Split by lines to avoid partial matches (e.g. 123 in 12345)
-   string lines[];
-   int lineCount = StringSplit(content, '\n', lines);
-   
-   for(int i=0; i<lineCount; i++)
-   {
-      string line = lines[i];
-      StringTrimLeft(line);
-      StringTrimRight(line);
-      if(line == myLoginStr)
-      {
-         Print("Auth: Account ", myLogin, " is AUTHORIZED.");
-         return true;
-      }
-   }
-   
-   Alert("Auth: Account " + myLoginStr + " is NOT AUTHORIZED.");
-   Print("Auth: Failed. Account not in list.");
-   return false;
-}
-//+------------------------------------------------------------------+ 
    // --- 1. ACCOUNT INFO (Balance, Equity, P/L) ---
-   int cy = y + 42; 
-   UpsertDashboardRect(DashboardObjectName("CARD_ACCT"), x + pad, cy, w - 2*pad, 55, CLR_BG_PANEL, CLR_BG_PANEL);
+   int cy = y + 50; 
+   UpsertDashboardRect(DashboardObjectName("CARD_ACCT"), x + pad, cy, w - 2*pad, 70, CLR_BG_PANEL, CLR_BG_PANEL);
    
    // Labels
-   UpsertDashboardText(DashboardObjectName("L_BAL"), x + pad*2, cy + 5, "Balance", CLR_TEXT_DIM, 8);
-   UpsertDashboardText(DashboardObjectName("V_BAL"), x + pad*2, cy + 20, DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2), CLR_TEXT_MAIN, 10, "Segoe UI Semibold");
+   UpsertDashTxt(DashboardObjectName("L_BAL"), x + pad*2, cy + 8, "Balance", CLR_TEXT_DIM, 8);
+   UpsertDashTxt(DashboardObjectName("V_BAL"), x + pad*2, cy + 26, DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2), CLR_TEXT_MAIN, 11, "Segoe UI Semibold");
    
-   UpsertDashboardText(DashboardObjectName("L_EQU"), x + pad*2 + 80, cy + 5, "Equity", CLR_TEXT_DIM, 8);
-   UpsertDashboardText(DashboardObjectName("V_EQU"), x + pad*2 + 80, cy + 20, DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2), CLR_TEXT_MAIN, 10, "Segoe UI Semibold");
+   UpsertDashTxt(DashboardObjectName("L_EQU"), x + pad*2 + 100, cy + 8, "Equity", CLR_TEXT_DIM, 8);
+   UpsertDashTxt(DashboardObjectName("V_EQU"), x + pad*2 + 100, cy + 26, DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2), CLR_TEXT_MAIN, 11, "Segoe UI Semibold");
    
-   UpsertDashboardText(DashboardObjectName("L_PL"), x + pad*2 + 160, cy + 5, "Floating P/L", CLR_TEXT_DIM, 8);
-   UpsertDashboardText(DashboardObjectName("V_PL"), x + pad*2 + 160, cy + 18, DoubleToString(floatingPL, 2), plColor, 12, "Segoe UI Bold");
+   UpsertDashTxt(DashboardObjectName("L_PL"), x + pad*2 + 200, cy + 8, "Floating P/L", CLR_TEXT_DIM, 8);
+   UpsertDashTxt(DashboardObjectName("V_PL"), x + pad*2 + 200, cy + 24, DoubleToString(floatingPL, 2), plColor, 13, "Segoe UI Bold");
 
-   // --- Last Action (Moved to Header Right) ---
-   // Positioned further right
-   int actionX = x + w - 220; 
-   UpsertDashboardText(DashboardObjectName("L_ACT_ST"), actionX, cy + 5, "Last Action", CLR_TEXT_DIM, 8);
-   // Shorten/Format action status if too long?
-   // Truncate to ~25 chars? Or wrap? 
-   // For now, assume it fits or simple truncation.
+   // --- Last Action ---
+   int actionX = x + w - 180; 
+   UpsertDashTxt(DashboardObjectName("L_ACT_ST"), actionX, cy + 8, "Last Action", CLR_TEXT_DIM, 8);
    string shortStatus = g_lastActionStatus;
    if(StringLen(shortStatus) > 30) shortStatus = StringSubstr(shortStatus, 0, 27) + "...";
-   UpsertDashboardText(DashboardObjectName("V_ACT_ST"), actionX, cy + 20, shortStatus, CLR_WARN, 8, "Segoe UI");
+   UpsertDashTxt(DashboardObjectName("V_ACT_ST"), actionX, cy + 26, shortStatus, CLR_WARN, 8, "Segoe UI");
 
    // --- 2. MARKET & SIGNAL INFO ---
-   cy += 65;
-   UpsertDashboardRect(DashboardObjectName("CARD_MKT"), x + pad, cy, w - 2*pad, 75, CLR_BG_PANEL, CLR_BG_PANEL);
+   cy += 85;
+   UpsertDashboardRect(DashboardObjectName("CARD_MKT"), x + pad, cy, w - 2*pad, 90, CLR_BG_PANEL, CLR_BG_PANEL);
    
-   // Row 1: Symbol | Spread | ATR
-   // Increased offsets to prevent overlap (Fix for XAUUSD length)
-   UpsertDashboardText(DashboardObjectName("L_SYM"), x + pad*2, cy + 6, "Symbol", CLR_TEXT_DIM, 8);
-   UpsertDashboardText(DashboardObjectName("V_SYM"), x + pad*2 + 60, cy + 6, _Symbol, CLR_TEXT_MAIN, 8, "Segoe UI Semibold");
+   UpsertDashTxt(DashboardObjectName("L_SYM"), x + pad*2, cy + 10, "Symbol", CLR_TEXT_DIM, 8);
+   UpsertDashTxt(DashboardObjectName("V_SYM"), x + pad*2 + 65, cy + 10, _Symbol, CLR_TEXT_MAIN, 9, "Segoe UI Semibold");
    
-   UpsertDashboardText(DashboardObjectName("L_SPR"), x + pad*2 + 150, cy + 6, "Spread", CLR_TEXT_DIM, 8);
+   UpsertDashTxt(DashboardObjectName("L_SPR"), x + pad*2 + 170, cy + 10, "Spread", CLR_TEXT_DIM, 8);
    int sprLimit = InpMaxSpreadPoints;
    color sprClr = (spreadPts > sprLimit) ? CLR_SELL : CLR_TEXT_MAIN;
-   UpsertDashboardText(DashboardObjectName("V_SPR"), x + pad*2 + 200, cy + 6, DoubleToString(spreadPts, 0) + " pts", sprClr, 8, "Segoe UI Semibold");
+   UpsertDashTxt(DashboardObjectName("V_SPR"), x + pad*2 + 225, cy + 10, DoubleToString(spreadPts, 0) + " pts", sprClr, 9, "Segoe UI Semibold");
 
-   UpsertDashboardText(DashboardObjectName("L_ATR"), x + pad*2 + 270, cy + 6, "Market", CLR_TEXT_DIM, 8);
-   UpsertDashboardText(DashboardObjectName("V_ATR"), x + pad*2 + 330, cy + 6, DetermineMarketRegime(), CLR_TEXT_MAIN, 8, "Segoe UI Semibold");
+   UpsertDashTxt(DashboardObjectName("L_ATR"), x + pad*2 + 310, cy + 10, "Market", CLR_TEXT_DIM, 8);
+   UpsertDashTxt(DashboardObjectName("V_ATR"), x + pad*2 + 375, cy + 10, DetermineMarketRegime(), CLR_TEXT_MAIN, 9, "Segoe UI Semibold");
 
    // Row 2: Active Trend | Signal
-   int r2y = cy + 28;
-   UpsertDashboardText(DashboardObjectName("L_ACT"), x + pad*2, r2y, "Active Direction:", CLR_TEXT_DIM, 9);
-   // Moved value further right to avoid overlapping label "Active Direction:"
-   UpsertDashboardText(DashboardObjectName("V_ACT"), x + pad*2 + 130, r2y, activeDirTxt, activeDirClr, 9, "Segoe UI Black");
+   int r2y = cy + 35;
+   UpsertDashTxt(DashboardObjectName("L_ACT"), x + pad*2, r2y, "Active Direction:", CLR_TEXT_DIM, 10);
+   UpsertDashTxt(DashboardObjectName("V_ACT"), x + pad*2 + 145, r2y, activeDirTxt, activeDirClr, 10, "Segoe UI Black");
 
-   int r3y = cy + 48;
-   UpsertDashboardText(DashboardObjectName("L_SIG"), x + pad*2, r3y, "Current Signal:", CLR_TEXT_DIM, 9);
-   // Moved value further right to adhere to column alignment
-   UpsertDashboardText(DashboardObjectName("V_SIG"), x + pad*2 + 130, r3y, signalTxt, signalClr, 9, "Segoe UI Bold");
+   int r3y = cy + 60;
+   UpsertDashTxt(DashboardObjectName("L_SIG"), x + pad*2, r3y, "Current Signal:", CLR_TEXT_DIM, 10);
+   UpsertDashTxt(DashboardObjectName("V_SIG"), x + pad*2 + 145, r3y, signalTxt, signalClr, 10, "Segoe UI Bold");
    
    // --- 3. GRID STATISTICS ---
-   cy += 85;
-   UpsertDashboardRect(DashboardObjectName("CARD_GRID"), x + pad, cy, w - 2*pad, 80, CLR_BG_PANEL, CLR_BG_PANEL);
+   cy += 110;
+   UpsertDashboardRect(DashboardObjectName("CARD_GRID"), x + pad, cy, w - 2*pad, 95, CLR_BG_PANEL, CLR_BG_PANEL);
    
-   // Columns: Positions | Pending
-   // Widened column spacing
    int col1 = x + pad*2;
-   int col2 = x + pad*2 + 150;
-   int col3 = x + pad*2 + 280;
+   int col2 = x + pad*2 + 170;
+   int col3 = x + pad*2 + 320;
    
-   UpsertDashboardText(DashboardObjectName("H_POS"), col1, cy + 5, "Positions", CLR_TEXT_DIM, 8);
-   UpsertDashboardText(DashboardObjectName("V_POS"), col1, cy + 20, IntegerToString(totalPos) + " (" + IntegerToString(buyPos) + "B/" + IntegerToString(sellPos) + "S)", CLR_TEXT_MAIN, 10, "Segoe UI Semibold");
+   UpsertDashTxt(DashboardObjectName("H_POS"), col1, cy + 8, "Positions", CLR_TEXT_DIM, 8);
+   UpsertDashTxt(DashboardObjectName("V_POS"), col1, cy + 26, IntegerToString(totalPos) + " (" + IntegerToString(buyPos) + "B/" + IntegerToString(sellPos) + "S)", CLR_TEXT_MAIN, 11, "Segoe UI Semibold");
 
-   UpsertDashboardText(DashboardObjectName("H_PND"), col2, cy + 5, "Pending Orders", CLR_TEXT_DIM, 8);
-   UpsertDashboardText(DashboardObjectName("V_PND"), col2, cy + 20, IntegerToString(pendingAll), CLR_TEXT_MAIN, 10, "Segoe UI Semibold");
+   UpsertDashTxt(DashboardObjectName("H_PND"), col2, cy + 8, "Pending Orders", CLR_TEXT_DIM, 8);
+   UpsertDashTxt(DashboardObjectName("V_PND"), col2, cy + 26, IntegerToString(pendingAll), CLR_TEXT_MAIN, 11, "Segoe UI Semibold");
 
-   UpsertDashboardText(DashboardObjectName("H_QUE"), col3, cy + 5, "Reopen Q", CLR_TEXT_DIM, 8);
-   UpsertDashboardText(DashboardObjectName("V_QUE"), col3, cy + 20, IntegerToString(queueSize), CLR_TEXT_MAIN, 10, "Segoe UI Semibold");
+   UpsertDashTxt(DashboardObjectName("H_QUE"), col3, cy + 8, "Reopen Q", CLR_TEXT_DIM, 8);
+   UpsertDashTxt(DashboardObjectName("V_QUE"), col3, cy + 26, IntegerToString(queueSize), CLR_TEXT_MAIN, 11, "Segoe UI Semibold");
 
    // Info Line
    string info = "Mode: " + (InpReverseOnOppositeCrossover ? "AUTO REVERSE" : "MANUAL") + " | " + 
                  "Limit Cap: " + IntegerToString(InpHardPendingStopsCap);
-   UpsertDashboardText(DashboardObjectName("INF_BOT"), col1, cy + 50, info, CLR_TEXT_DIM, 8);
+   UpsertDashTxt(DashboardObjectName("INF_BOT"), col1, cy + 65, info, CLR_TEXT_DIM, 9);
 
-   // --- 4. ACTION STATUS REMOVED FROM BOTTOM ---
-   // It is now in the header.
-   // Or keep section title for something else?
-   // Nothing needed here for now.
-
-   // --- 5. BUTTONS ---
-   // Moved up further to match HMA layout
-   int by = y + h - 90; // Was -70
-   int bw = (w - 5*pad) / 4; // 4 Buttons
+   // --- 4. BUTTONS ---
+   int by = y + h - pad - 40; 
+   int bw = (w - 5*pad) / 4; 
    
-   UpsertDashboardButton(DashboardObjectName("BTN_START"), x + pad, by, bw, 32, "START", CLR_BTN_START, C'255,255,255');
-   // Darker Green for START NOW
+   UpsertDashboardButton(DashboardObjectName("BTN_START"), x + pad, by, bw, 36, "START", CLR_BTN_START, C'255,255,255');
    color clrStartNow = C'20,100,60'; 
-   UpsertDashboardButton(DashboardObjectName("BTN_START_NOW"), x + pad*2 + bw, by, bw, 32, "START NOW", clrStartNow, C'255,255,255');
+   UpsertDashboardButton(DashboardObjectName("BTN_START_NOW"), x + pad*2 + bw, by, bw, 36, "START NOW", clrStartNow, C'255,255,255');
    
-   UpsertDashboardButton(DashboardObjectName("BTN_STOP"), x + pad*3 + bw*2, by, bw, 32, "STOP", CLR_BTN_STOP, C'255,255,255');
-   UpsertDashboardButton(DashboardObjectName("BTN_CLOSE"), x + pad*4 + bw*3, by, bw, 32, "CLOSE ALL", CLR_BTN_CLOSE, C'255,255,255');
+   UpsertDashboardButton(DashboardObjectName("BTN_STOP"), x + pad*3 + bw*2, by, bw, 36, "STOP", CLR_BTN_STOP, C'255,255,255');
+   UpsertDashboardButton(DashboardObjectName("BTN_CLOSE"), x + pad*4 + bw*3, by, bw, 36, "CLOSE ALL", CLR_BTN_CLOSE, C'255,255,255');
+
 
    ChartRedraw(0);
+}
+
+
+//==============================
+// AUTH Logic (Moved Global)
+//==============================
+bool CheckAuthorization()
+{
+   if(AUTH_URL == "") return true;
+
+   string cookie=NULL, headers;
+   char post[], result[];
+   int res;
+   ResetLastError();
+   
+   // Add Cache Buster to prevent GitHub 5-min caching
+   string url = AUTH_URL + "?t=" + IntegerToString((long)TimeCurrent());
+   
+   res = WebRequest("GET", url, cookie, NULL, 5000, post, 0, result, headers);
+   
+   if(res == -1 || res != 200)
+   {
+      int err = GetLastError();
+      // Only alert on failure if meaningful
+      if(res != 200) Alert("Auth Server Error: " + IntegerToString(res));
+      else {
+         string msg = "Auth Failed: " + IntegerToString(err);
+         if(err == 4060) msg += " (Check Allowed URLs)";
+         Alert(msg);
+      }
+      return false; 
+   }
+   
+   string content = CharArrayToString(result);
+   long myLogin = AccountInfoInteger(ACCOUNT_LOGIN);
+   string myLoginStr = IntegerToString(myLogin);
+   
+   if(StringFind(content, myLoginStr) >= 0)
+   {
+      Print("Auth: Account ", myLogin, " AUTHORIZED. (Content len=", StringLen(content), ")");
+      return true;
+   }
+   
+   Alert("Auth: Account " + myLoginStr + " NOT FOUND.");
+   Print("Auth: Failed. Login ", myLogin, " not found in content: ", StringSubstr(content, 0, 50), "...");
+   return false;
 }
 
 double RoundToTick(double price)
@@ -1414,32 +1504,6 @@ int CountOurPositions(int direction)
    return count;
 }
 
-bool IsPositionIdentifierStillOpen(const long positionId, const int direction)
-{
-   if(positionId <= 0)
-      return false;
-
-   for(int i = PositionsTotal() - 1; i >= 0; --i)
-   {
-      ulong ticket = PositionGetTicket(i);
-      if(ticket == 0 || !IsOurPosition())
-         continue;
-
-      long ident = PositionGetInteger(POSITION_IDENTIFIER);
-      if(ident != positionId)
-         continue;
-
-      long posType = PositionGetInteger(POSITION_TYPE);
-      if(direction == DIR_BUY && posType != POSITION_TYPE_BUY)
-         continue;
-      if(direction == DIR_SELL && posType != POSITION_TYPE_SELL)
-         continue;
-
-      return true;
-   }
-
-   return false;
-}
 
 bool IsOurPendingOrderType(const long orderType, const int direction)
 {
@@ -1452,25 +1516,7 @@ bool IsOurPendingOrderType(const long orderType, const int direction)
            orderType == ORDER_TYPE_BUY_LIMIT || orderType == ORDER_TYPE_SELL_LIMIT);
 }
 
-bool IsTpRefillLimitOrderType(const long orderType, const int direction)
-{
-   if(direction == DIR_BUY)
-      return (orderType == ORDER_TYPE_BUY_LIMIT);
-   if(direction == DIR_SELL)
-      return (orderType == ORDER_TYPE_SELL_LIMIT);
 
-   return (orderType == ORDER_TYPE_BUY_LIMIT || orderType == ORDER_TYPE_SELL_LIMIT);
-}
-
-bool IsTpRefillLimitOrder(const long orderType, const string comment, const int direction)
-{
-   if(!InpTpHitReplaceInLimit)
-      return false;
-   if(!IsTpRefillLimitOrderType(orderType, direction))
-      return false;
-
-   return (StringFind(comment, g_tpRefillLimitCommentPrefix, 0) == 0);
-}
 
 bool IsAnyPendingOrderType(const long orderType)
 {
@@ -1480,209 +1526,6 @@ bool IsAnyPendingOrderType(const long orderType)
            orderType == ORDER_TYPE_SELL_STOP ||
            orderType == ORDER_TYPE_BUY_STOP_LIMIT ||
            orderType == ORDER_TYPE_SELL_STOP_LIMIT);
-}
-
-int CountTpRefillLimitOrders(const int direction)
-{
-   int count = 0;
-   for(int i = OrdersTotal() - 1; i >= 0; --i)
-   {
-      ulong ticket = OrderGetTicket(i);
-      if(ticket == 0 || !OrderSelect(ticket))
-         continue;
-
-      string symbol  = OrderGetString(ORDER_SYMBOL);
-      long   magic   = OrderGetInteger(ORDER_MAGIC);
-      long   type    = OrderGetInteger(ORDER_TYPE);
-      string comment = OrderGetString(ORDER_COMMENT);
-      if(symbol != _Symbol || (ulong)magic != InpMagicNumber)
-         continue;
-      if(!IsTpRefillLimitOrder(type, comment, direction))
-         continue;
-
-      count++;
-   }
-   return count;
-}
-
-bool HasTpRefillLimitNearPrice(const int direction, const double price, const double tol)
-{
-   for(int i = OrdersTotal() - 1; i >= 0; --i)
-   {
-      ulong ticket = OrderGetTicket(i);
-      if(ticket == 0 || !OrderSelect(ticket))
-         continue;
-
-      string symbol  = OrderGetString(ORDER_SYMBOL);
-      long   magic   = OrderGetInteger(ORDER_MAGIC);
-      long   type    = OrderGetInteger(ORDER_TYPE);
-      string comment = OrderGetString(ORDER_COMMENT);
-      if(symbol != _Symbol || (ulong)magic != InpMagicNumber)
-         continue;
-      if(!IsTpRefillLimitOrder(type, comment, direction))
-         continue;
-
-      double openPrice = RoundToTick(OrderGetDouble(ORDER_PRICE_OPEN));
-      if(MathAbs(openPrice - price) <= tol)
-         return true;
-   }
-   return false;
-}
-
-bool DeleteOldestTpRefillLimit(const int direction)
-{
-   bool found = false;
-   ulong oldestTicket = 0;
-   datetime oldestTime = 0;
-
-   for(int i = OrdersTotal() - 1; i >= 0; --i)
-   {
-      ulong ticket = OrderGetTicket(i);
-      if(ticket == 0 || !OrderSelect(ticket))
-         continue;
-
-      string symbol  = OrderGetString(ORDER_SYMBOL);
-      long   magic   = OrderGetInteger(ORDER_MAGIC);
-      long   type    = OrderGetInteger(ORDER_TYPE);
-      string comment = OrderGetString(ORDER_COMMENT);
-      if(symbol != _Symbol || (ulong)magic != InpMagicNumber)
-         continue;
-      if(!IsTpRefillLimitOrder(type, comment, direction))
-         continue;
-
-      datetime setupTime = (datetime)OrderGetInteger(ORDER_TIME_SETUP);
-      if(!found || setupTime < oldestTime)
-      {
-         found = true;
-         oldestTicket = ticket;
-         oldestTime = setupTime;
-      }
-   }
-
-   if(!found || oldestTicket == 0)
-      return false;
-
-   return trade.OrderDelete(oldestTicket);
-}
-
-bool PlaceTpRefillLimitOrder(const int direction, const double requestedPrice, const string reason)
-{
-   if(!InpTpHitReplaceInLimit || InpTpRefillLimitMax < 1)
-      return false;
-   
-   string regime = DetermineMarketRegime();
-   if(regime == "VOLATILE")
-   {
-      // In volatile markets, do not place limit orders (let profit run)
-      return false;
-   }
-
-   if(direction != DIR_BUY && direction != DIR_SELL)
-      return false;
-
-   bool terminalTrade = (bool)TerminalInfoInteger(TERMINAL_TRADE_ALLOWED);
-   bool mqlTrade      = (bool)MQLInfoInteger(MQL_TRADE_ALLOWED);
-   if(!terminalTrade || !mqlTrade)
-      return false;
-
-   trade.SetExpertMagicNumber((long)InpMagicNumber);
-   trade.SetDeviationInPoints(InpMaxSlippagePoints);
-
-   double tick = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
-   if(tick <= 0.0)
-      tick = _Point;
-   double tol = tick * 0.5;
-
-   double price = RoundToTick(requestedPrice);
-   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   if(ask <= 0.0 || bid <= 0.0)
-      return false;
-      
-   // Limit Order Logic validation (BuyLimit below Ask, SellLimit above Bid)
-   if(direction == DIR_BUY)
-   {
-      if(price >= ask) return false; // Immediate fill risk
-   }
-   else
-   {
-      if(price <= bid) return false; // Immediate fill risk
-   }
-
-   long stopsLevelPts = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
-   double minDist = (double)stopsLevelPts * _Point;
-   if(minDist < 0.0)
-      minDist = 0.0;
-      
-   // Basic validation retained...
-
-   if(HasTpRefillLimitNearPrice(direction, price, tol))
-      return true;
-
-   // Do not place refill at nearly same price as an existing open position.
-   if(IsOurPositionNearPrice(direction, price, tol))
-      return false;
-
-   while(CountTpRefillLimitOrders(direction) >= InpTpRefillLimitMax)
-   {
-      if(!DeleteOldestTpRefillLimit(direction))
-         break;
-   }
-
-   double tp = 0.0;
-   bool ok = false;
-   string comment = g_tpRefillLimitCommentPrefix;
-   if(reason != "")
-      comment = comment + " | " + reason;
-
-   if(direction == DIR_BUY)
-   {
-      tp = RoundToTick(price + GetActiveTP());
-      ok = trade.BuyLimit(InpLotSize, price, _Symbol, 0.0, tp, ORDER_TIME_GTC, 0, comment);
-   }
-   else
-   {
-      tp = RoundToTick(price - GetActiveTP());
-      ok = trade.SellLimit(InpLotSize, price, _Symbol, 0.0, tp, ORDER_TIME_GTC, 0, comment);
-   }
-
-   if(!ok)
-   {
-      long ret = trade.ResultRetcode();
-      if(ret == 10015) // invalid price
-      {
-         double ask2 = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-         double bid2 = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-         double retryPrice = price;
-         bool retried = false;
-
-         if(direction == DIR_BUY && ask2 > 0.0)
-         {
-            double maxAllowed2 = ask2 - minDist - (2.0 * tick);
-            retryPrice = RoundToTick(MathMin(price, maxAllowed2));
-            if(retryPrice > 0.0)
-            {
-               tp = RoundToTick(retryPrice + GetActiveTP());
-               retried = trade.BuyLimit(InpLotSize, retryPrice, _Symbol, 0.0, tp, ORDER_TIME_GTC, 0, comment);
-            }
-         }
-         else if(direction == DIR_SELL && bid2 > 0.0)
-         {
-            double minAllowed2 = bid2 + minDist + (2.0 * tick);
-            retryPrice = RoundToTick(MathMax(price, minAllowed2));
-            tp = RoundToTick(retryPrice - GetActiveTP());
-            retried = trade.SellLimit(InpLotSize, retryPrice, _Symbol, 0.0, tp, ORDER_TIME_GTC, 0, comment);
-         }
-
-         if(retried)
-            return true;
-      }
-
-      Print("TP refill limit failed. Retcode=", trade.ResultRetcode(), " Msg=", trade.ResultRetcodeDescription(), " Price=", price);
-      return false;
-   }
-
-   return true;
 }
 
 void PurgeNonStopPendingOrders()
@@ -1704,8 +1547,6 @@ void PurgeNonStopPendingOrders()
 
       if(type != ORDER_TYPE_BUY_STOP && type != ORDER_TYPE_SELL_STOP)
       {
-         if(IsTpRefillLimitOrder(type, comment, DIR_NONE))
-            continue;
 
          if(trade.OrderDelete(ticket))
             Print("Removed non-stop pending order ticket=", ticket, " type=", type);
@@ -1745,6 +1586,7 @@ int CountOurPendingOrders(const int direction = DIR_NONE)
 
 void CancelAllOurPendingOrders()
 {
+
    for(int i = OrdersTotal() - 1; i >= 0; --i)
    {
       ulong ticket = OrderGetTicket(i);
@@ -2085,8 +1927,6 @@ void ManageAdvancePendingOrders()
       if(!IsAnyPendingOrderType(type))
          continue;
 
-      if(IsTpRefillLimitOrder(type, comment, g_activeDirection))
-         continue;
 
       if(!IsOurPendingOrderType(type, g_activeDirection))
       {
@@ -2483,6 +2323,67 @@ void ApplyStepTrailingStop()
    }
 }
 
+void UpdateGridSettings()
+{
+   double activeTP = GetActiveTP();
+   if(activeTP <= 0.0) return;
+
+   // 1. Update Positions
+   for(int i = PositionsTotal() - 1; i >= 0; --i)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0 || !IsOurPosition()) continue;
+      
+      long posType = PositionGetInteger(POSITION_TYPE);
+      double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+      double currentTP = PositionGetDouble(POSITION_TP);
+      double currentSL = PositionGetDouble(POSITION_SL);
+      
+      double newTP = 0.0;
+      if(posType == POSITION_TYPE_BUY)
+         newTP = RoundToTick(openPrice + activeTP);
+      else if(posType == POSITION_TYPE_SELL)
+         newTP = RoundToTick(openPrice - activeTP);
+         
+      if(MathAbs(currentTP - newTP) > _Point)
+      {
+         bool res = trade.PositionModify(ticket, currentSL, newTP);
+         Print("Hot Update Position #", ticket, ": CurrentTP=", currentTP, " NewTP=", newTP, " Result=", res);
+      }
+   }
+   
+   // 2. Update Pending Orders
+   for(int i=OrdersTotal()-1; i>=0; --i)
+   {
+      ulong ticket = OrderGetTicket(i); // This already selects the order
+      if(ticket == 0) continue;
+      
+      if(OrderGetString(ORDER_SYMBOL) != _Symbol || OrderGetInteger(ORDER_MAGIC) != InpMagicNumber) continue;
+      
+      long type = OrderGetInteger(ORDER_TYPE);
+      if(!IsAnyPendingOrderType(type)) continue;
+      
+      double openPrice = OrderGetDouble(ORDER_PRICE_OPEN);
+      double currentTP = OrderGetDouble(ORDER_TP);
+      double currentSL = OrderGetDouble(ORDER_SL);
+      double stopLimit = OrderGetDouble(ORDER_PRICE_STOPLIMIT);
+      datetime expiration = (datetime)OrderGetInteger(ORDER_TIME_EXPIRATION);
+      ENUM_ORDER_TYPE_TIME typeTime = (ENUM_ORDER_TYPE_TIME)OrderGetInteger(ORDER_TYPE_TIME);
+      
+      double newTP = 0.0;
+      if(type == ORDER_TYPE_BUY_LIMIT || type == ORDER_TYPE_BUY_STOP || type == ORDER_TYPE_BUY_STOP_LIMIT)
+         newTP = RoundToTick(openPrice + activeTP);
+      else if(type == ORDER_TYPE_SELL_LIMIT || type == ORDER_TYPE_SELL_STOP || type == ORDER_TYPE_SELL_STOP_LIMIT)
+         newTP = RoundToTick(openPrice - activeTP);
+         
+      if(MathAbs(currentTP - newTP) > _Point)
+      {
+         bool res = trade.OrderModify(ticket, openPrice, currentSL, newTP, typeTime, expiration, stopLimit);
+         Print("Hot Update Pending #", ticket, ": CurrentTP=", currentTP, " NewTP=", newTP, " Result=", res);
+      }
+   }
+}
+
 void ManageActiveGrid()
 {
    // Step trailing stop applies to ALL open positions regardless of entry mode
@@ -2542,7 +2443,7 @@ int OnInit()
       return INIT_PARAMETERS_INCORRECT;
    }
 
-   if(InpLotSize <= 0.0 || InpGridGapPrice <= 0.0 || InpTpNormal <= 0.0 || InpMaxGridOrders < 1 || InpAtrPeriod < 1 || InpHardPendingStopsCap < 0 || InpTpRefillDelaySec < 0 || (InpEnableAdvancePendingOrders && InpAdvancePendingLimit < 1) || (InpTpHitReplaceInLimit && InpTpRefillLimitMax < 1))
+   if(InpLotSize <= 0.0 || InpGridGapPrice <= 0.0 || InpTpNormal <= 0.0 || InpMaxGridOrders < 1 || InpAtrPeriod < 1 || InpHardPendingStopsCap < 0 || (InpEnableAdvancePendingOrders && InpAdvancePendingLimit < 1))
    {
       Print("Invalid inputs. Check lot size, ATR period, grid gap, take profit, max grid orders, stop pending limits, and TP refill limit count.");
       return INIT_PARAMETERS_INCORRECT;
@@ -2553,6 +2454,9 @@ int OnInit()
    {
       return INIT_FAILED;
    }
+
+   // Auto-Check Update on Init
+   CheckForUpdate(); 
 
    // Indicator initialization
    g_emaFastHandle = iMA(_Symbol, _Period, InpFastEMAPeriod, 0, MODE_EMA, PRICE_CLOSE);
@@ -2573,15 +2477,17 @@ int OnInit()
 
    g_gridEnabled = true;
    ClearReopenRequests();
-   ClearTpRefillQueue();
    g_emaTouchLastCheckedBarTime = 0;
-   g_hmaPaused = false;
+   g_v3Paused = false;
    PurgeNonStopPendingOrders();
    g_lastActionStatus = "Action: ready";
    g_activeDirection = DetectExistingDirection();
    ManageAdvancePendingOrders();
    UpdateEmaVisuals();
    UpdateDashboard();
+
+   // Apply setting changes immediately
+   UpdateGridSettings();
 
    return INIT_SUCCEEDED;
 }
@@ -2590,7 +2496,6 @@ void OnDeinit(const int reason)
 {
    DeleteEmaVisualObjects();
    DeleteDashboardObjects();
-   ClearTpRefillQueue();
    g_emaTouchLastCheckedBarTime = 0;
 
    if(g_emaFastHandle != INVALID_HANDLE)
@@ -2607,29 +2512,35 @@ void OnTick()
    UpdateEmaVisuals();
    UpdateDashboard();
    
-   // Verify HMA Exit
-   CheckHmaExit();
+   // Verify V3 Logic (Hard Exit / BE / Resume)
+   CheckV3Logic();
 
    if(!g_gridEnabled)
       return;
       
-   if(g_hmaPaused)
+   if(g_v3Paused)
    {
-      // Allow Pending Queue processing (Limits)? Maybe. But stop adding NEW grid orders.
-      // We will skip ManageActiveGrid.
+      // V3 Pause Active: We might have running positions (BE) or none (Hard Exit).
+      // We do NOT add new grid orders.
       return; 
    }
 
    PurgeNonStopPendingOrders();
    ProcessPendingReopen();
-   ProcessTpRefillQueue();
-   ProcessTpEmaResetWait();
 
    // 1) Manage currently active grid on every tick.
    ManageActiveGrid();
    ManageAdvancePendingOrders();
 
-   // 2) Detect fresh crossover signal and start/switch direction if allowed.
+   // 2. Market Regime & HMA
+   CalcHMA();
+   DetermineMarketRegime();
+   
+   // [HOT UPDATE] Enforce Settings on Running Grid
+   UpdateGridSettings();
+   
+
+   // 3. Check for Crossover Signals
    int signal = DIR_NONE;
    if(!GetCrossoverSignal(signal))
       return;
@@ -2660,7 +2571,7 @@ void OnTick()
       CancelAllOurPendingOrders();
 
    if(oppositeSignal || g_activeDirection == DIR_NONE)
-      g_hmaPaused = false; // Reset pause on direction switch
+      g_v3Paused = false; // Reset pause on direction switch
 
    g_activeDirection = signal;
 
@@ -2678,136 +2589,3 @@ void OnTick()
    }
 }
 
-// Refill Logic: When TP is hit in non-volatile market, place Limit Order at Entry Price.
-void OnTradeTransaction(const MqlTradeTransaction &trans,
-                        const MqlTradeRequest &request,
-                        const MqlTradeResult &result)
-{
-   if(!InpTpHitReplaceInLimit)
-      return;
-
-   if(trans.type != TRADE_TRANSACTION_DEAL_ADD)
-      return;
-
-   ulong dealTicket = trans.deal;
-   if(dealTicket == 0 || !HistoryDealSelect(dealTicket))
-      return;
-
-   string dealSymbol = HistoryDealGetString(dealTicket, DEAL_SYMBOL);
-   long   dealMagic  = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
-   long   dealEntry  = HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
-   long   dealReason = HistoryDealGetInteger(dealTicket, DEAL_REASON);
-   long   dealType   = HistoryDealGetInteger(dealTicket, DEAL_TYPE);
-
-   if(dealSymbol != _Symbol || (ulong)dealMagic != InpMagicNumber)
-      return;
-
-   // Reopen only after an exit deal closed by take-profit.
-   if(dealEntry != DEAL_ENTRY_OUT || dealReason != DEAL_REASON_TP)
-      return;
-
-   int closedDirection = DIR_NONE;
-   if(dealType == DEAL_TYPE_SELL)
-      closedDirection = DIR_BUY;   // SELL deal closes a BUY position
-   else if(dealType == DEAL_TYPE_BUY)
-      closedDirection = DIR_SELL;  // BUY deal closes a SELL position
-
-   if(closedDirection == DIR_NONE)
-      return;
-
-   if(g_activeDirection != DIR_NONE && closedDirection != g_activeDirection)
-      return;
-   if(!g_gridEnabled)
-      return;
-
-   // Check Market Regime - Skip Refill if Volatile
-   string regime = DetermineMarketRegime();
-   if(regime == "VOLATILE")
-   {
-      g_lastActionStatus = "Action: TP hit, refill skipped (Volatile)";
-      return;
-   }
-
-   // Find original entry price
-   long positionId = HistoryDealGetInteger(dealTicket, DEAL_POSITION_ID);
-   if(IsPositionIdentifierStillOpen(positionId, closedDirection))
-      return; // Should be closed, but double check
-
-   double entryPrice = 0.0;
-   if(HistorySelectByPosition(positionId))
-   {
-      int deals = HistoryDealsTotal();
-      for(int i = 0; i < deals; i++)
-      {
-         ulong dTicket = HistoryDealGetTicket(i);
-         if(dTicket > 0)
-         {
-            long dEntry = HistoryDealGetInteger(dTicket, DEAL_ENTRY);
-            if(dEntry == DEAL_ENTRY_IN)
-            {
-               entryPrice = HistoryDealGetDouble(dTicket, DEAL_PRICE);
-               break; // Found entry
-            }
-         }
-      }
-   }
-   
-   if(entryPrice <= 0.0)
-   {
-      // Fallback: estimate from Exit Price approx? No, unsafe.
-      Print("TP Refill: Could not find entry price for position ", positionId);
-      return;
-   }
-
-   // Place Limit Order at Entry Price
-   if(PlaceTpRefillLimitOrder(closedDirection, entryPrice, "TP Refill"))
-   {
-      g_lastActionStatus = StringFormat("Action: TP hit, Limit Refill placed @ %.2f (%s)", entryPrice, regime);
-   }
-   else
-   {
-      g_lastActionStatus = "Action: TP hit, Refill placement failed";
-   }
-}
-
-void OnChartEvent(const int id,
-                  const long &lparam,
-                  const double &dparam,
-                  const string &sparam)
-{
-   if(!InpShowDashboard)
-      return;
-
-   if(id != CHARTEVENT_OBJECT_CLICK)
-      return;
-
-   if(sparam == DashboardObjectName("BTN_START"))
-   {
-      StartGridWaitForSignal();
-      UpdateDashboard();
-      ChartRedraw();
-      return;
-   }
-   
-   if(sparam == DashboardObjectName("BTN_START_NOW"))
-   {
-      StartGridNowFromDashboard();
-      UpdateDashboard();
-      ChartRedraw();
-      return;
-   }
-
-   if(sparam == DashboardObjectName("BTN_STOP"))
-   {
-      StopGridFromDashboard();
-      UpdateDashboard();
-      return;
-   }
-
-   if(sparam == DashboardObjectName("BTN_CLOSE"))
-   {
-      CloseAllFromDashboard();
-      UpdateDashboard();
-      return;
-   }
-}

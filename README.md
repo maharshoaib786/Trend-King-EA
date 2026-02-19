@@ -22,3 +22,9 @@
 3. Click OK.
 
 The EA will now check your GitHub file on startup. If the account number is not in the list, it will alert and remove itself.
+
+
+Option B: The "Trend Swing" (My Recommendation)
+Hard Exit: Slow HMA(34) (Stay in for the big move).
+Breakeven: Fast EMA(9) (Protect profit when momentum slows, but stay in the trade!).
+Resume: Add back if price bounces off HMA.
